@@ -1,0 +1,53 @@
+# overview
+- use dns - route 53
+- certificate - aws service
+
+- purchase public domain for dns name - route 50
+- setup server certificate for security
+-- acm -> generate certificate for lb
+- private hosted zone -> hyhtik3.ai
+
+
+# Requirements
+## private hosted zone
+- dns: private hosted zone
+1. Route 53
+2. Create hosted zone
+3. Create record
+- choose lb --> FE
+- inbound --> 
+
+Test dns name resolve
+curl http://hyhtik3.ai
+dig http://hyhtik3.ai       # alb public ip can be found in Answer section
+
+
+## certificate on LB - aws service(will not be charged for first 30 days)
+1. create cert with `AWS Private CA`
+-- Common name (CN)
+*.hyhtik3.ai
+2. select > action > install CA > set date and continue
+
+3. create record in route 53
+4. select domain and create records
+5. aws certificate manager > certificates > request certificate > request private certificate
+
+![alt text](image.png)
+
+AWS private CA ? how much does it cost
+https://app.excalidraw.com/l/9PkovwBdiCN/15fhhIFXH3M
+
+Load Balancers --> frontend-dashboard-alb --> add listener --> 443
+
+
+- TLS: Transport Layer Security (north to south)
+- MTLS: 
+
+
+## notes:
+- check certificate 
+![alt text](image-1.png)
+
+curl -v https://hyhtik3.ai
+
+from jumphost --> curl -k https://hyhtik3.ai
