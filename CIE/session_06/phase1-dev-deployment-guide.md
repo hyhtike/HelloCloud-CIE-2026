@@ -124,9 +124,9 @@
 
 ### 10. Validate Access Paths
 1. SSH from admin workstation to dashboard-ec2 using Elastic IP.
-`ssh -i "/c/Users/HSUYEE/Desktop/HYH/doc_generation/CIE/session 06/dev-key.pem" ubuntu@47.131.83.92`
+`ssh -i dev-key.pem ubuntu@47.131.83.92`
 2. From dashboard-ec2, SSH to counting-ec2 private IP.
-ssh -o IdentitiesOnly=yes -i /home/ubuntu/dev-key.pem ec2-user@172.31.52.227
+`ssh -o IdentitiesOnly=yes -i /home/ubuntu/dev-key.pem ec2-user@172.31.52.227`
 3. Confirm direct public SSH to counting-ec2 is not possible.
 
 ### 11. Deploy and Run Services
@@ -137,7 +137,48 @@ ssh -o IdentitiesOnly=yes -i /home/ubuntu/dev-key.pem ec2-user@172.31.52.227
 
 ### 12. Configure systemd Services
 1. Create one systemd unit for dashboard-service.
+```bash
+[Unit]
+Description=Dashboard Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/dashboard-service
+Environment=PORT=9002
+Environment=COUNTING_SERVICE_URL=http://172.31.52.227:9001
+ExecStart=/opt/dashboard-service/dashboard-service
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
 2. Create one systemd unit for counting-service.
+```bash
+[Unit]
+Description=Counting Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/counting-service
+Environment=PORT=9001
+ExecStart=/opt/counting-service/counting-service
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
 3. Set non-root user in both units.
 4. Enable and start both services.
 5. Validate with systemctl status and service logs.
@@ -147,6 +188,8 @@ ssh -o IdentitiesOnly=yes -i /home/ubuntu/dev-key.pem ec2-user@172.31.52.227
 2. Confirm dashboard-service calls counting-service successfully.
 3. Confirm counting-service is not reachable from public internet.
 4. Confirm SSH access is restricted as designed.
+
+![alt text](screenshots/dashboard-svc.png)
 
 ## Security Notes
 - Do not set SSH source to 0.0.0.0/0.
