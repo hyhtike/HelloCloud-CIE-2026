@@ -14,8 +14,8 @@
 - Correct AWS region selected
 - Trusted admin source IP or CIDR known
 - Service ports decided:
-  - dashboard-service: 80/443 through reverse proxy or direct app port such as 8888
-  - counting-service: application port such as 9001
+  - dashboard-service: port 80 (using dedicated user with CAP_NET_BIND_SERVICE)
+  - counting-service: port 80 (using dedicated user with CAP_NET_BIND_SERVICE)
 
 ## Step-by-Step Deployment
 
@@ -75,7 +75,7 @@
 1. Create another security group named counting-sg.
 2. VPC: selected VPC.
 3. Add inbound rules:
-   - TCP 9001 from dashboard-sg
+   - TCP 80 from dashboard-sg
    - TCP 22 from dashboard-sg
 4. Keep outbound as Allow all for dev simplicity.
 5. Create.
@@ -133,7 +133,9 @@
 1. Install dependencies on both hosts.
 2. Deploy dashboard-service on dashboard-ec2.
 3. Deploy counting-service on counting-ec2.
-4. Configure dashboard-service to call counting-service via private IP:9001.
+4. Create dedicated users: `dashboard` on dashboard-ec2 and `counting` on counting-ec2.
+5. Grant CAP_NET_BIND_SERVICE capability to each service binary to allow port 80 binding without root.
+6. Configure dashboard-service to call counting-service via private IP on port 80.
 
 ### 12. Configure systemd Services
 1. Create one systemd unit for dashboard-service.
@@ -145,11 +147,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-Group=ubuntu
+User=dashboard
+Group=dashboard
 WorkingDirectory=/opt/dashboard-service
-Environment=PORT=9002
-Environment=COUNTING_SERVICE_URL=http://172.31.52.227:9001
+Environment=PORT=80
+Environment=COUNTING_SERVICE_URL=http://172.31.52.227
 ExecStart=/opt/dashboard-service/dashboard-service
 Restart=on-failure
 RestartSec=5
@@ -157,6 +159,11 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 ```
+
+   Before enabling this unit, run:
+   ```bash
+   sudo setcap cap_net_bind_service=+ep /opt/dashboard-svc
+   ```
 
 2. Create one systemd unit for counting-service.
 ```bash
@@ -167,10 +174,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-Group=ubuntu
+User=counting
+Group=counting
 WorkingDirectory=/opt/counting-service
-Environment=PORT=9001
+Environment=PORT=80
 ExecStart=/opt/counting-service/counting-service
 Restart=on-failure
 RestartSec=5
@@ -179,8 +186,23 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-3. Set non-root user in both units.
-4. Enable and start both services.
+   Before enabling this unit, run:
+   ```bash
+   sudo setcap cap_net_bind_service=+ep /opt/counting-service/counting-service
+   ```
+
+3. Create the `dashboard` and `counting` users on their respective hosts:
+   ```bash
+   sudo useradd -m -s /bin/bash dashboard  # on dashboard-ec2
+   sudo useradd -m -s /bin/bash counting   # on counting-ec2
+   ```
+4. Enable and start both services:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable dashboard-service
+   sudo systemctl start dashboard-service
+   # (repeat for counting-service on counting-ec2)
+   ```
 5. Validate with systemctl status and service logs.
 
 ### 13. Final Validation
@@ -202,3 +224,6 @@ WantedBy=multi-user.target
 - Multi-AZ high availability
 - Session Manager
 - NAT-based private outbound internet
+
+## Next Step
+- Continue with Phase 2 in [CIE/session_06/phase2-alb-autoscaling-guide.md](CIE/session_06/phase2-alb-autoscaling-guide.md)

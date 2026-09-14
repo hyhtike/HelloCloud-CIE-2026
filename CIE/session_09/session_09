@@ -1,0 +1,113 @@
+# overview
+## Security | Identity
+Alternatives to AWS PCA
+Session 09: 
+
+openssl https://link.excalidraw.com/readonly/lqgVGBNzD3ZZGiK6zwxk
+
+
+smallstep-cas-design 
+https://link.excalidraw.com/l/9hD7S5FgGWN/4p1bAt86bdD
+
+private hosted zone + small CA
+https://link.excalidraw.com/l/9PkovwBdiCN/3a7CMvWU4y
+
+
+# Smallstep
+## 1. Install step cli (one machine 1)
+```bash
+# Ubuntu / Debian
+wget https://dl.smallstep.com/gh-release/cli/gh-release-header/v0.30.0/step-cli_0.30.0-1_amd64.deb
+sudo dpkg -i step-cli_0.30.0-1_amd64.deb
+
+# Amazon Linux / RHEL
+wget https://dl.smallstep.com/gh-release/cli/gh-release-header/v0.30.0/step-cli_0.30.0-1_amd64.rpm
+sudo rpm -i step-cli_0.30.0-1_amd64.rpm
+
+# macOS
+brew install step
+
+step version
+```
+
+## 2. Create Root CA (valid 10 yrs) - use once, then keep root_ca.key offline
+```bash
+step certificate create "team03.io Root CA" root_ca.crt root_ca.key \
+  --profile root-ca --not-after 87600h --no-password --insecure
+```
+
+## 3. Create Intermedidate CA, singed by root (valid 5 yrs)
+```bash
+step certificate create "team03.io Intermediate CA" intermediate_ca.crt intermediate_ca.key \
+  --profile intermediate-ca --ca root_ca.crt --ca-key root_ca.key --not-after 43800h --no-password --insecure
+
+# from now on ONLY the intermediate signs certs. root_ca.key is not needed any more -> move it away / keep offline
+```
+
+## 4. Create the 2 leaf certed, signed by Intermediate CA (valid 1 yr)
+```bash
+step certificate create dashboard.team03.io dashboard.crt dashboard.key \
+  --profile leaf --ca intermediate_ca.crt --ca-key intermediate_ca.key --not-after 8760h --no-password --insecure
+
+step certificate create counting.team03.io counting.crt counting.key \
+  --profile leaf --ca intermediate_ca.crt --ca-key intermediate_ca.key --not-after 8760h --no-password --insecure
+```
+
+## 5. Build the chain file + check
+```bash
+cat intermediate_ca.crt root_ca.crt > chain.pem            # order: intermediate first, then root
+
+step certificate inspect dashboard.crt --short
+openssl verify -CAfile root_ca.crt -untrusted intermediate_ca.crt dashboard.crt    # -> dashboard.crt: OK
+openssl verify -CAfile root_ca.crt -untrusted intermediate_ca.crt counting.crt     # -> counting.crt: OK
+```
+
+## 6. Files you have now -> where they go
+```bash
+root_ca.crt          ->  laptop browser trust store, dashboard EC2 trust store   (only the ROOT is trusted)
+root_ca.key          ->  offline / secret, not used again until the intermediate expires
+intermediate_ca.crt  ->  part of chain.pem
+intermediate_ca.key  ->  stays on jumphost (secret), signs new leaf certs
+chain.pem            ->  ACM "Certificate chain" field   (intermediate + root)
+dashboard.crt/key    ->  ACM import  ->  dashboard ALB 443 listener
+counting.crt/key     ->  ACM import  ->  counting ALB 443 listener
+```
+
+## Checking: check cert content
+```bash
+openssl x509 -in certificate.crt -text -noout
+
+step certificate inspect chain.pem
+```
+
+Why 3 levels?   root (trust anchor, offline)  ->  intermediate (does the signing)  ->  leaf (the server cert)
+- If intermediate_ca.key leaks: make a new intermediate from the root, re-issue leafs. Browsers keep trusting the same root.
+- If root_ca.key leaks: everything must be redone and the root re-imported in every browser / VM. So keep it offline.
+- Browser / VM only need root_ca.crt. The ALB sends leaf + intermediate (that is what chain.pem in ACM is for).
+
+Notes
+- --no-password --insecure  = private key not encrypted. Fine for a lab, ACM needs it unencrypted anyway.
+- Renew: before 1 year, re-run step 4 and re-import into ACM (ACM does not renew imported certs).
+- step-ca server, provisioners, ACME, auto-renew, systemd = advanced, NOT needed for this lab.
+
+# Back to ACM
+## 7. Import into ACM
+- import leaf cert into AWS Certificate Manager > Certificates > Import certificate
+- EC2 > Load balancers > Frontend dashboard alb > edit listener to 443
+
+# misc
+---
+notes https://app.excalidraw.com/l/Iyi7SudFIb/dG6XM41L73
+
+
+
+
+//TODO update the counting service url to dns name and recreate dashboard-lt
+- install root cert at path
+```bash
+sudo vi /usr/local/share/ca-certificates/team03-root-ca.crt
+sudo update-ca-certificates
+```
+update systemd Environment=COUNTING_SERVICE_URL=https://counting.team03.io
+![alt text](image-1.png)
+
